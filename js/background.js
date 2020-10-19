@@ -129,7 +129,6 @@ async function deleteWallet(id, pincode) {
     for(i = 0; i < identityProviders.length; i++) {
         var identityProvider = identityProviders[i];
         var response = await deleteIdentityProvider(identityProvider.url, identityProvider.IdentificatorID); 
-        console.log(response);
     }
 
     DeleteIdentificator(id)
@@ -140,7 +139,6 @@ async function deleteWallet(id, pincode) {
 }
 
 function getRandomColor(hardcoded, test) {
-    console.log(hardcoded)
     if(hardcoded == "" || hardcoded == null) {
         var letters = '0123456789ABCDEF';
         var color = '#';
@@ -237,8 +235,6 @@ async function signMessage(message, privateKeyString) {
         console.log("No signature")
 		return null
     }
-
-    console.log(signature);
     
     return signature
 }
@@ -404,9 +400,6 @@ async function confirmPublicKey(url, identityProviderID, confirmationCode) {
 
     var publicKey = RetrieveTempPublicKey(identityProviderID)
     
-    console.log(identityProviderID);
-    console.log(publicKey);
-
     if(publicKey === null || publicKey === "") {
         console.log("Can not get identity provider public key");
         return null
@@ -432,7 +425,6 @@ async function confirmIdentityProvider(url, identityProviderID, confirmationCode
         return false;
     }
 
-    console.log(confirmPublicResponse);
     var publicKey = RetrieveTempPublicKey(identityProviderID)
     DeleteTempPublicKey(identityProviderID)
     StorePublicKey(identityProviderID, publicKey)
@@ -482,6 +474,28 @@ async function getIdentityProviderSharingQRCode(identityProviderID) {
     return btoa(objJsonStr)
 }
 
+async function sendWalletPendingRequest(generatorURL, qrCode, comment) {
+    var publicKeyResponse = await getPublicKey(generatorURL)
+    if(publicKeyResponse === null) {
+        return "Can not get public key";
+    }
+
+    var publicKey = publicKeyResponse.publicKey;
+
+    var rawData = {};
+    rawData["qrCode"] = qrCode;
+    rawData["comment"] = comment;
+ 
+    var encryptedAndSignedData = await signAndEncrypt(rawData, currentWallet.IdentificatorID, currentPrivateKey,
+        currentPublicKey, publicKey, true)
+    var response = await sendRequest(generatorURL + "/addWalletPendingRequest", encryptedAndSignedData, true)
+    if(response === null) {
+        return "You can not send QR code for review";
+    }
+ 
+    return null;
+}
+
 async function deletePublicKey(url, identityProviderID) {
     var rawData = {};
     
@@ -505,8 +519,6 @@ async function deletePublicKey(url, identityProviderID) {
  }
 
 async function deleteIdentityProvider(url, identityProviderID) {
-    console.log(url);
-    console.log(identityProviderID);
     var deletePublicKeyResponse = await deletePublicKey(url, identityProviderID)
 
     if(deletePublicKeyResponse === null) {
@@ -720,20 +732,19 @@ chrome.notifications.create(uuidv4(), {
 chrome.notifications.onButtonClicked.addListener(function(notifId, btnIdx) {
     if (notifId === startNotificationID) {
         if (btnIdx === 0) {
-            chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 445}, function(window) {
+            chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455}, function(window) {
             });
         }
     }
 });
 
 chrome.browserAction.onClicked.addListener(function(tab) {
-    chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 445}, function(window) {
+    chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455}, function(window) {
     });
 });
 
 setInterval(function() {
     if(currentWallet != null) {
-        console.log("setting up light version")
         chrome.browserAction.setIcon({
             path : {
             "16": "images/blackvisor_light_16.png",
@@ -742,7 +753,6 @@ setInterval(function() {
             "128": "images/blackvisor_light_128.png"
         }});
     } else {
-        console.log("setting up dark version")
         chrome.browserAction.setIcon({
             path : {
             "16": "images/blackvisor_16.png",
@@ -758,6 +768,15 @@ async function getIPs() {
     var ips = await getLocalIPs();
 }
 
+function validURL(string) {
+    try {
+      new URL(string);
+    } catch (_) {
+      return false;  
+    }
+  
+    return true;
+  }
 
 setInterval(async function() {
         if(currentWallet != null) {
@@ -766,9 +785,6 @@ setInterval(async function() {
             
             var generatorsList = GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_GENERATOR)
             
-            console.log(browserIps);
-            console.log(generatorsList);
-
             var found = false;
 
             var identityProviderToToken = {};
@@ -791,8 +807,13 @@ setInterval(async function() {
                         if(browserIpTokens[0] == generatorIpTokens[0] && 
                             browserIpTokens[1] == generatorIpTokens[1] &&
                             browserIpTokens[2] == generatorIpTokens[2]) {
-                                var url = "http://" + generatorIp + ":8081"
-                                console.log(url);
+                                var url = "http://" + generatorIp
+
+                                if(validURL(url) == false) {
+                                    console.log("Wrong format url: " + url);
+                                    continue;
+                                }
+
                                 var tokens = await listTokensForGenerator(url, generatorID)
                                 
                                 if(tokens == null) {
@@ -817,6 +838,29 @@ setInterval(async function() {
                     if(found == true) {
                         break;
                     }
+
+                    var url = "http://" + generatorIp
+
+                    if(validURL(url) == true) {
+
+                        var tokens = await listTokensForGenerator(url, generatorID)
+                        
+                        if(tokens == null) {
+                            continue;
+                        }
+                        var timeStamp = Math.floor(Date.now());
+                        SetSessionKey("browseripstime", browserIp, timeStamp)
+
+                        var tokensMap = tokens.response;
+
+                        for (var identityProviderID in tokensMap) {
+                            if (!tokensMap.hasOwnProperty(identityProviderID)) continue;
+
+                            identityProviderToToken[identityProviderID] = tokensMap[identityProviderID];
+                        }                                
+
+                        break;
+                    }
                 }
             }
 
@@ -831,10 +875,7 @@ setInterval(async function() {
             
                 var signedData = await signMessage(token, currentPrivateKey)
 
-                console.log("Data:" + signedData);
-
                 for(var i = 0; i < services.length; i++) {
-                    console.log("Setting for service: " +  "https://" + services[i])
                     chrome.cookies.set({
                         url: "https://" + services[i],
                         name: "netclave-token-"+identityProviderID,
@@ -876,7 +917,7 @@ setInterval(async function() {
                 continue;
             }
 
-            console.log(sharedIdentificators);
+            //console.log(sharedIdentificators);
 
             var responseMap = sharedIdentificators.response;
 

@@ -42,7 +42,7 @@ body {
 }
 
 .internal-panel-body {
-    height: 248px !important;
+    height: 255px !important;
 }
 
 .form-input-hint {
@@ -115,7 +115,6 @@ body {
     background-color: #A5A5A5 !important;
 }
 
-#qrcode>img {
-    margin-left: auto;
-    margin-right: auto;
+.panel-body-no-padding {
+    padding: 0em !important;
 }

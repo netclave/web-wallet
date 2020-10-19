@@ -19,10 +19,16 @@ async function calculateQRCode(...args) {
     return sendMessageToBackground(requestObj)
 }
 
+async function sendWalletPendingRequest(...args) {
+    var requestObj = createRequestObject("sendWalletPendingRequest", args)
+    return sendMessageToBackground(requestObj)
+}
+
 function renderQRCode(args) {
     var context = createContext()
     context["pincodeError"] = ""
     context["pincode"] = ""
+    context["urlError"] = ""
     context = mergeContext(context, args)
     renderTemplate("render-qr-code", context, async function(html) {
         putToDiv("app", context, html)
@@ -57,6 +63,38 @@ function renderQRCode(args) {
             colorDark : "#000000",
             colorLight : "#ffffff",
             correctLevel : QRCode.CorrectLevel.M
+        });
+
+        jQuery("#sendQRCode").click(async function(){
+            var generatorUrl = document.getElementById('external-generator-url').value;
+            var comment = document.getElementById('comment').value;
+            
+            var internalContext = createContext();
+            internalContext["walletID"] = args["walletID"];
+            internalContext["IdentificatorID"] = args["IdentificatorID"];
+
+            var hasError = false;
+            if(generatorUrl == null || generatorUrl == "") {
+                internalContext["urlError"] = "Url is required and must not be empty!";
+                internalContext["hasErrorUrl"] = "has-error";
+                hasError = true;
+            }
+
+            if (hasError == true) {
+                renderQRCode(internalContext)
+            } else {
+                console.log("Sending request")
+                var response = sendWalletPendingRequest(generatorUrl, data, comment);
+                if(response === null || response === "") {
+                    internalContext["errorMessage"] = "Can not send QR code for review";
+                    renderWalletProfile(internalContext);
+                    return;
+                }
+
+                internalContext["successMessage"] = "QR Code request succesfully sent";
+                renderQRCode(internalContext)
+            }
+            return;
         });
 
         $("#qrcodetext").text(data);

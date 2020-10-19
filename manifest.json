@@ -1,7 +1,7 @@
 {
     "manifest_version": 2,
-    "name": "Custom Google Homepage",
-    "description": "This extension shows a Google Image search result for the current page",
+    "name": "NetClave Security Extension",
+    "description": "This component is part of NetClave - an identity based network access solution. More information can be found here - https://www.blackvisor.io/products/",
     "version": "1.0",
     "background": {
         "scripts": ["js/storage.js", "js/crypto-utils.js", "js/crypto-storage.js", "js/axios.min.js", "js/session-storage.js", "js/background.js"],
