@@ -34,6 +34,16 @@ async function getTimeStampForLocalIp(...args) {
     return sendMessageToBackground(requestObj)
 }
 
+async function getTimeStampForInternalGenerator(...args) {
+    var requestObj = createRequestObject("getTimeStampForInternalGenerator", args)
+    return sendMessageToBackground(requestObj)
+}
+
+async function listCapabilitiesForIdentityProvider(...args) {
+    var requestObj = createRequestObject("listCapabilitiesForIdentityProviderFromFrontEnd", args)
+    return sendMessageToBackground(requestObj)
+}
+
 var listeners = [];
 
 async function cancelListeners() {
@@ -49,13 +59,15 @@ async function renderServices(args) {
 
     var servicesHtml = ""
 
-    for(var i = 0; i < services.length; i++) {
-        servicesHtml += "<span class=\"label label-rounded\">" + services[i] + "</span>";
+    if (services != null) {
+        for(var i = 0; i < services.length; i++) {
+            servicesHtml += "<span class=\"label label-rounded\">" + services[i] + "</span>";
 
-        if(i > 0 && i % 2 == 0) {
-            servicesHtml += "<br>";
-        } else {
-            servicesHtml += "&nbsp;";
+            if(i > 0 && i % 2 == 0) {
+                servicesHtml += "<br>";
+            } else {
+                servicesHtml += "&nbsp;";
+            }
         }
     }
 
@@ -79,9 +91,33 @@ async function renderGeneratorRow(args) {
 
 async function renderGenerators(args) {
     var identityProviderId = args["IdentificatorID"];
-    var generators = await listGeneratorsForIdentityProvider(identityProviderId)
-
+    
     var html = "";
+
+    var context = {};
+    context["generatorIdentificator"] = "Internal Web Wallet Genetator";
+
+    var internalGeneratorHTML = "";
+
+    var internalGeneratorTimestamp = await getTimeStampForInternalGenerator(identityProviderId);
+
+    var currentTimeStamp = Math.floor(Date.now());
+
+    var delta = (currentTimeStamp - internalGeneratorTimestamp)
+
+    if(delta > 60000) {
+        internalGeneratorHTML += "<span class=\"label label-error label-rounded\">Internal Generator</span>";
+    } else {
+        internalGeneratorHTML += "<span class=\"label label-success label-rounded\">Internal Generator</span>";
+    }
+
+    context["ips"] = internalGeneratorHTML
+
+    var htmlRow = await renderGeneratorRow(context);
+    
+    html += htmlRow;
+
+    var generators = await listGeneratorsForIdentityProvider(identityProviderId)
 
     for (var generatorID in generators) {
         if (!generators.hasOwnProperty(generatorID)) continue;
@@ -144,6 +180,7 @@ async function renderIdentityProviderProfile(args) {
     context["showMessage"] = showMessage;
 
     context = mergeContext(context, args)
+
     renderTemplate("identity-provider-profile", context, function(html) {
         putToDiv("app", context, html)
 

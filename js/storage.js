@@ -14,36 +14,64 @@
  * limitations under the License.
  */
 
-function SetKey(table, key, value) {
-    localStorage.setItem(table + "/" + key, value);
+async function SetKey(table, key, value) {
+    var itemKey = table + "/" + key;
+
+    var obj = {};
+    obj[itemKey] = btoa(value);
+
+    await browser.storage.local.set(obj)
 }
 
-function GetKey(table, key) {
-    return localStorage.getItem(table + "/" + key)
+async function GetKey(table, key) {
+    var itemKey = table + "/" + key
+    var response = await browser.storage.local.get(itemKey);
+
+    if (response == null) {
+        return null;
+    }
+ 
+    var result = response[itemKey];
+
+    if (result == null || result == "") {
+        return null;
+    }
+
+    return atob(result);
 }
 
-function DelKey(table, key) {
-    return localStorage.removeItem(table + "/" + key)
+async function DelKey(table, key) {
+    var itemKey = table + "/" + key
+
+    await browser.storage.local.remove(itemKey);
 }
 
-function AddToMap(table, key, objectKey, object) {
-    var mapObj = GetMap(table, key)
+async function AddToMap(table, key, objectKey, object) {
+    var mapObj = await GetMap(table, key)
     if(mapObj == null) {
         mapObj = {};
     }
+
     mapObj[objectKey] = object;
-    SetKey(table, key, JSON.stringify(mapObj))
+
+    await SetKey(table, key, JSON.stringify(mapObj))
 }
 
-function GetMap(table, key) {
-    return JSON.parse(GetKey(table, key))
+async function GetMap(table, key) {
+    var mapObj = await GetKey(table, key);
+
+    if(mapObj == null) {
+        return {};
+    }
+    
+    return JSON.parse(mapObj)
 }
 
-function DelFromMap(table, key, objectKey) {
-    var mapObj = GetMap(table, key)
+async function DelFromMap(table, key, objectKey) {
+    var mapObj = await GetMap(table, key)
     if(mapObj == null) {
         mapObj = {};
     }
     delete mapObj[objectKey];
-    SetKey(table, key, JSON.stringify(mapObj))
+    await SetKey(table, key, JSON.stringify(mapObj))
 }

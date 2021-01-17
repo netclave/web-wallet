@@ -19,28 +19,60 @@ var currentPublicKey = null;
 var currentPrivateKey = null;
 var currentIdentityProviderURL = null;
 var currentIdentityProviderPublicKey = null;
+var lastTimeLocalTokenForIdentityWasGenerated = {};
 
 var IDENTIFICATOR_TYPE_IDENTITY_PROVIDER = "identityProvider"
 var IDENTIFICATOR_TYPE_GENERATOR = "generator"
 var IDENTIFICATOR_TYPE_WALLET = "wallet"
 var IDENTIFICATOR_TYPE_OPENER = "opener"
 
-chrome.runtime.onMessage.addListener(
+// Opera 8.0+
+var isOpera = (!!window.opr && !!opr.addons) || !!window.opera || navigator.userAgent.indexOf(' OPR/') >= 0;
+
+// Firefox 1.0+
+var isFirefox = typeof InstallTrigger !== 'undefined';
+
+// Safari 3.0+ "[object HTMLElementConstructor]" 
+var isSafari = /constructor/i.test(window.HTMLElement) || (function (p) { return p.toString() === "[object SafariRemoteNotification]"; })(!window['safari'] || (typeof safari !== 'undefined' && safari.pushNotification));
+
+// Internet Explorer 6-11
+var isIE = /*@cc_on!@*/false || !!document.documentMode;
+
+// Edge 20+
+var isEdge = !isIE && !!window.StyleMedia;
+
+// Chrome 1 - 79
+var isChrome = !!window.chrome && (!!window.chrome.webstore || !!window.chrome.runtime);
+
+// Edge (based on chromium) detection
+var isEdgeChromium = isChrome && (navigator.userAgent.indexOf("Edg") != -1);
+
+// Blink engine detection
+var isBlink = (isChrome || isOpera) && !!window.CSS;
+
+
+browser.runtime.onMessage.addListener(
     function(request, sender, sendResponse) {
-        var fn = window[request["function"]]
-        var args = request["args"]
-        fn.apply(window, args).then((response) => {
-            var clonedResponse = JSON.parse(JSON.stringify(response))
-            sendResponse(clonedResponse);
-        }).catch(function(error) {
-            sendResponse(error);
-        });;
-        return true;
+        return new Promise((resolve, reject) => {
+            var fn = window[request["function"]]
+            var args = request["args"]
+            
+            fn.apply(window, args).then((response) => {
+                var clonedResponse = JSON.parse(JSON.stringify(response))
+                //sendResponse(clonedResponse);
+                resolve(clonedResponse);
+            }).catch(function(error) {
+                reject(error);
+                //sendResponse(error);
+            });
+
+            //resolve(true);
+        });
     }
 );
 
 async function listWallets() {
-    var wallets = GetIdentificators(IDENTIFICATOR_TYPE_WALLET)
+    var wallets = await GetIdentificators(IDENTIFICATOR_TYPE_WALLET)
     return wallets;
 }
 
@@ -55,17 +87,20 @@ async function createNewWallet(name, pincode, pincodeRepeat) {
     var pair = await generateKey(encryptAlgorithm, scope);
     var keys = await exportPemKeys(pair);
 
-    var identificator = CreateIdentificator(id, IDENTIFICATOR_TYPE_WALLET)
+    var identificator = await CreateIdentificator(id, IDENTIFICATOR_TYPE_WALLET)
     identificator["name"] = name;
     identificator["pincode"] = pincode;
-    AddIdentificator(identificator)
-    StorePrivateKey(id, keys.privateKey)
-    StorePublicKey(id, keys.publicKey)
+    await AddIdentificator(identificator)
+    await StorePrivateKey(id, keys.privateKey)
+    await StorePublicKey(id, keys.publicKey)
     return id;
 }
 
 async function loadWallet(id, pincode) {
-    var identificator = GetIdentificators(IDENTIFICATOR_TYPE_WALLET)[id];
+    var identificators = await GetIdentificators(IDENTIFICATOR_TYPE_WALLET);
+
+    var identificator = identificators[id];
+
     if(identificator == null || identificator == "") {
         return "Can not find wallet";
     }
@@ -76,8 +111,9 @@ async function loadWallet(id, pincode) {
 
     currentWallet = identificator
     delete currentWallet["pincode"];
-    currentPublicKey = RetrievePublicKey(id);
-    currentPrivateKey = RetrievePrivateKey(id);
+    currentPublicKey = await RetrievePublicKey(id);
+    currentPrivateKey = await RetrievePrivateKey(id);
+    lastTimeLocalTokenForIdentityWasGenerated = {};
     return null;
 }
 
@@ -93,7 +129,10 @@ async function getCurrentWallet() {
 }
 
 async function changeWalletPincode(id, oldPincode, pincode, pincodeRepeat) {
-    var identificator = GetIdentificators(IDENTIFICATOR_TYPE_WALLET)[id];
+    var identificators = await GetIdentificators(IDENTIFICATOR_TYPE_WALLET);
+
+    var identificator = identificators[id];
+
     if(identificator == null || identificator == "") {
         return "Can not find wallet";
     }
@@ -108,13 +147,16 @@ async function changeWalletPincode(id, oldPincode, pincode, pincodeRepeat) {
 
     identificator["pincode"] = pincode;
 
-    AddIdentificator(identificator)
+    await AddIdentificator(identificator)
 
     return null
 }
 
 async function deleteWallet(id, pincode) {
-    var identificator = GetIdentificators(IDENTIFICATOR_TYPE_WALLET)[id];
+    var identificators = await GetIdentificators(IDENTIFICATOR_TYPE_WALLET);
+
+    var identificator = identificators[id];
+
     if(identificator == null || identificator == "") {
         return "Can not find wallet";
     }
@@ -124,16 +166,16 @@ async function deleteWallet(id, pincode) {
     }
 
     var identityProvidersList = GetIdentificatorToIdentificatorMap(identificator, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
-    var identityProviders = LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var identityProviders = await LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
    
     for(i = 0; i < identityProviders.length; i++) {
         var identityProvider = identityProviders[i];
         var response = await deleteIdentityProvider(identityProvider.url, identityProvider.IdentificatorID); 
     }
 
-    DeleteIdentificator(id)
-    DeletePrivateKey(id)
-    DeletePublicKey(id)
+    await DeleteIdentificator(id)
+    await DeletePrivateKey(id)
+    await DeletePublicKey(id)
     
     return null;
 }
@@ -188,14 +230,14 @@ async function verifyAndDecrypt(request, recipientPrivateKeyPem) {
 	var senderPublicKeyPem = request.publicKey
 	
 	if (senderPublicKeyPem === null || senderPublicKeyPem === "") {
-		senderPublicKeyPem = RetrievePublicKey(id);
+		senderPublicKeyPem = await RetrievePublicKey(id);
     }
     
     if (senderPublicKeyPem === null || senderPublicKeyPem === "") {
-		senderPublicKeyPem = RetrieveTempPublicKey(id);
+		senderPublicKeyPem = await RetrieveTempPublicKey(id);
 	}
 
-	var senderPublicKey = await importPublicKey(senderPublicKeyPem, signAlgorithm, ["verify"])
+    var senderPublicKey = await importPublicKey(senderPublicKeyPem, signAlgorithm, ["verify"])
 
 	if (senderPublicKey === null || senderPublicKey === "") {
         return null
@@ -364,7 +406,9 @@ async function registerPublicKey(url, emailOrPhoneNumber, publicKey) {
 
    var encryptedAndSignedData = await signAndEncrypt(rawData, currentWallet.IdentificatorID, currentPrivateKey,
        currentPublicKey, publicKey, true)
+
    var response = await sendRequest(url + "/registerPublicKey", encryptedAndSignedData, true)
+
    if(response === null) {
        return null;
    }
@@ -381,7 +425,7 @@ async function registerNewIdentityProvider(url, emailOrPhoneNumber) {
     var identityproviderId = publicKeyResponse.id;
     var publicKey = publicKeyResponse.publicKey;
 
-    StoreTempPublicKey(identityproviderId, publicKey)
+    await StoreTempPublicKey(identityproviderId, publicKey)
 
     var registerPublicKeyResponse = await registerPublicKey(url, emailOrPhoneNumber,
         publicKey)
@@ -398,7 +442,7 @@ async function confirmPublicKey(url, identityProviderID, confirmationCode) {
     rawData["confirmationCode"] = confirmationCode;
     rawData["identificatorType"] = IDENTIFICATOR_TYPE_WALLET
 
-    var publicKey = RetrieveTempPublicKey(identityProviderID)
+    var publicKey = await RetrieveTempPublicKey(identityProviderID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get identity provider public key");
@@ -425,15 +469,15 @@ async function confirmIdentityProvider(url, identityProviderID, confirmationCode
         return false;
     }
 
-    var publicKey = RetrieveTempPublicKey(identityProviderID)
-    DeleteTempPublicKey(identityProviderID)
-    StorePublicKey(identityProviderID, publicKey)
-    var identityProvider = CreateIdentificator(identityProviderID, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var publicKey = await RetrieveTempPublicKey(identityProviderID)
+    await DeleteTempPublicKey(identityProviderID)
+    await StorePublicKey(identityProviderID, publicKey)
+    var identityProvider = await CreateIdentificator(identityProviderID, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
     identityProvider["url"] = url
 
-    AddIdentificator(identityProvider)
-    AddIdentificatorToIdentificator(currentWallet, identityProvider)
-    AddIdentificatorToIdentificator(identityProvider, currentWallet)
+    await AddIdentificator(identityProvider)
+    await AddIdentificatorToIdentificator(currentWallet, identityProvider)
+    await AddIdentificatorToIdentificator(identityProvider, currentWallet)
 
     return true;
 }
@@ -443,8 +487,8 @@ async function listIdentityProvidersForCurrentWallet() {
         return [];
     }
 
-    var identityProvidersList = GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
-    var identityProviders = LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var identityProvidersList = await GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var identityProviders = await LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
     return identityProviders;
 }
 
@@ -499,7 +543,7 @@ async function sendWalletPendingRequest(generatorURL, qrCode, comment) {
 async function deletePublicKey(url, identityProviderID) {
     var rawData = {};
     
-    var publicKey = RetrievePublicKey(identityProviderID)
+    var publicKey = await RetrievePublicKey(identityProviderID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get identity provider public key");
@@ -525,12 +569,15 @@ async function deleteIdentityProvider(url, identityProviderID) {
         return "Can not delete identity provider";
     }
 
-    DeletePublicKey(identityProviderID)
-    var identityProvider = GetIdentificators(IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)[identityProviderID];
+    await DeletePublicKey(identityProviderID)
 
-    DeleteIdentificator(identityProvider)
-    DelIdentificatorToIdentificator(currentWallet, identityProvider)
-    DelIdentificatorToIdentificator(identityProvider, currentWallet)
+    var identificators = await GetIdentificators(IDENTIFICATOR_TYPE_IDENTITY_PROVIDER);
+
+    var identityProvider = identificators[identityProviderID];
+
+    await DeleteIdentificator(identityProvider)
+    await DelIdentificatorToIdentificator(currentWallet, identityProvider)
+    await DelIdentificatorToIdentificator(identityProvider, currentWallet)
 
     return null;
 }
@@ -538,7 +585,7 @@ async function deleteIdentityProvider(url, identityProviderID) {
 async function listPublicKeysForIdentificator(url, identityProviderID) {
     var rawData = {};
     
-    var publicKey = RetrievePublicKey(identityProviderID)
+    var publicKey = await RetrievePublicKey(identityProviderID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get public key");
@@ -557,10 +604,48 @@ async function listPublicKeysForIdentificator(url, identityProviderID) {
     return response;
 }
 
+async function listCapabilitiesForIdentityProviderFromFrontEnd(identityProviderID) {
+    var identityProviders = await listIdentityProvidersForCurrentWallet();
+
+    if (identityProviders.hasOwnProperty(identityProviderID) === true) {
+        var url = identityProviders[identityProviderID]["url"];
+
+        var capabilities = await listCapabilitiesForIdentityProvider(url, identityProviderID);
+
+        if (capabilities != null) {
+            return capabilities.response;
+        }
+    }
+
+    return null;
+}
+
+async function listCapabilitiesForIdentityProvider(url, identityProviderID) {
+    var rawData = {};
+    
+    var publicKey = await RetrievePublicKey(identityProviderID)
+    
+    if(publicKey === null || publicKey === "") {
+        console.log("Can not get public key");
+        return null
+    }
+
+    var encryptedAndSignedData = await signAndEncrypt(rawData, currentWallet.IdentificatorID, 
+        currentPrivateKey, currentPublicKey, publicKey, false)
+
+    var response = await sendRequest(url + "/listCapabilities", encryptedAndSignedData, true)
+    
+    if(response === null) {
+        return null;
+    }
+ 
+    return response;
+}
+
 async function listGeneratorIPs(url, identityProviderID) {
     var rawData = {};
     
-    var publicKey = RetrievePublicKey(identityProviderID)
+    var publicKey = await RetrievePublicKey(identityProviderID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get identity provider public key");
@@ -582,7 +667,7 @@ async function listGeneratorIPs(url, identityProviderID) {
 async function listServices(url, identityProviderID) {
     var rawData = {};
     
-    var publicKey = RetrievePublicKey(identityProviderID)
+    var publicKey = await RetrievePublicKey(identityProviderID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get identity provider public key");
@@ -601,10 +686,40 @@ async function listServices(url, identityProviderID) {
     return response;
 }
 
+async function saveTokens(url, identityProviderID, token) {
+    var rawData = {};
+    
+    rawData["walletIdToTokenMap"] = {};
+
+    rawData["walletIdToTokenMap"][currentWallet.IdentificatorID] = token;
+
+    var publicKey = await RetrievePublicKey(identityProviderID)
+    
+    if(publicKey === null || publicKey === "") {
+        console.log("Can not get identity provider public key");
+        return null
+    }
+
+    var encryptedAndSignedData = await signAndEncrypt(rawData, currentWallet.IdentificatorID, 
+        currentPrivateKey, currentPublicKey, publicKey, false)
+
+    var response = await sendRequest(url + "/saveTokens", encryptedAndSignedData, true)
+    
+    //console.log("Save tokens response");
+
+    //console.log(response);
+
+    if(response === null) {
+        return null;
+    }
+ 
+    return response;
+}
+
 async function listTokensForGenerator(url, generatorID) {
     var rawData = {};
     
-    var publicKey = RetrievePublicKey(generatorID)
+    var publicKey = await RetrievePublicKey(generatorID)
     
     if(publicKey === null || publicKey === "") {
         console.log("Can not get generator public key");
@@ -655,12 +770,12 @@ async function getLocalIPs() {
 }
 
 async function getIdentityProviderCookieTimeStamp(identityProviderID) {
-    var timestamp = GetSessionKey("cookiesettime", identityProviderID)
+    var timestamp = await GetSessionKey("cookiesettime", identityProviderID)
     return timestamp
 }
 
 async function listServicesForIdentityProvider(identityProviderID) {
-    var servicesJson = GetSessionKey(SERVICES, identityProviderID)
+    var servicesJson = await GetSessionKey(SERVICES, identityProviderID)
 
     var services = JSON.parse(servicesJson);
 
@@ -672,16 +787,16 @@ async function listGeneratorsForIdentityProvider(identityProviderID) {
         return [];
     }
 
-    var identityProvidersList = GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
-    var identityProviders = LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var identityProvidersList = await GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
+    var identityProviders = await LoadIdentificatorsByList(identityProvidersList, IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
     var identityProvider = identityProviders[identityProviderID];
 
     if(identityProvider == null) {
         return []
     }
 
-    var generatorsList = GetIdentificatorToIdentificatorMap(identityProvider, IDENTIFICATOR_TYPE_GENERATOR)
-    var generators = LoadIdentificatorsByList(generatorsList, IDENTIFICATOR_TYPE_GENERATOR)
+    var generatorsList = await GetIdentificatorToIdentificatorMap(identityProvider, IDENTIFICATOR_TYPE_GENERATOR)
+    var generators = await LoadIdentificatorsByList(generatorsList, IDENTIFICATOR_TYPE_GENERATOR)
     
     return generators;
 }
@@ -689,7 +804,7 @@ async function listGeneratorsForIdentityProvider(identityProviderID) {
 async function listIpsInLocalSubnetForGenerator(generatorID) {
     var browserIps = await getLocalIPs();
 
-    var generatorIpsJson = GetSessionKey(LOCALIPS, generatorID)
+    var generatorIpsJson = await GetSessionKey(LOCALIPS, generatorID)
     var generatorIps = JSON.parse(generatorIpsJson);
     
     var result = [];
@@ -712,250 +827,328 @@ async function listIpsInLocalSubnetForGenerator(generatorID) {
 }
 
 async function getTimeStampForLocalIp(browserIp) {
-    var timestamp = GetSessionKey("browseripstime", browserIp)
+    var timestamp = await GetSessionKey("browseripstime", browserIp)
     return timestamp
 }
 
-var startNotificationID = null;
+async function getTimeStampForInternalGenerator(identityProviderId) {
+    var timestamp = GetSessionKey("internalgenerator", identityProviderId)
+    return timestamp
+}
 
-chrome.notifications.create(uuidv4(), {
-    title: 'NetClave Unlocking Reminder',
-    iconUrl: 'images/blackvisor_128.png',
-    type: 'basic',
-    requireInteraction: true,
-    buttons: [{title: "Unlock"}, {title: "Continue"}],
-    message: "No NetClave wallet is unlocked. In order to start NetClave session please click Unlock"
-}, function(id) {
-    startNotificationID = id;
-});
+async function init() {
+    var startNotificationID = null;
 
-chrome.notifications.onButtonClicked.addListener(function(notifId, btnIdx) {
-    if (notifId === startNotificationID) {
-        if (btnIdx === 0) {
-            chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455}, function(window) {
+    if (isFirefox === true || isOpera === true) {
+        startNotificationID = await browser.notifications.create(uuidv4(), {
+            title: 'NetClave Unlocking Reminder',
+            iconUrl: 'images/blackvisor_128.png',
+            type: 'basic',
+            message: "No NetClave wallet is unlocked. In order to start NetClave session please click Unlock"
+        });
+    } else {
+        if (isSafari === true) {
+            startNotificationID = await browser.notifications.create(uuidv4(), {
+                title: 'NetClave Unlocking Reminder',
+                iconUrl: 'images/blackvisor_128.png',
+                type: 'basic',
+                buttons: [{title: "Unlock"}, {title: "Continue"}],
+                message: "No NetClave wallet is unlocked. In order to start NetClave session please click Unlock"
+            });
+        } else {
+            startNotificationID = await browser.notifications.create(uuidv4(), {
+                title: 'NetClave Unlocking Reminder',
+                iconUrl: 'images/blackvisor_128.png',
+                type: 'basic',
+                requireInteraction: true,
+                buttons: [{title: "Unlock"}, {title: "Continue"}],
+                message: "No NetClave wallet is unlocked. In order to start NetClave session please click Unlock"
             });
         }
     }
-});
-
-chrome.browserAction.onClicked.addListener(function(tab) {
-    chrome.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455}, function(window) {
+    
+    browser.notifications.onButtonClicked.addListener(function(notifId, btnIdx) {
+        if (notifId === startNotificationID) {
+            if (btnIdx === 0) {
+                browser.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455});
+            }
+        }
     });
-});
-
-setInterval(function() {
-    if(currentWallet != null) {
-        chrome.browserAction.setIcon({
-            path : {
-            "16": "images/blackvisor_light_16.png",
-            "32": "images/blackvisor_light_32.png",
-            "64": "images/blackvisor_light_64.png",
-            "128": "images/blackvisor_light_128.png"
-        }});
-    } else {
-        chrome.browserAction.setIcon({
-            path : {
-            "16": "images/blackvisor_16.png",
-            "32": "images/blackvisor_32.png",
-            "64": "images/blackvisor_64.png",
-            "128": "images/blackvisor_128.png"
-        }});
-        
-    }
-}, 200);
-
-async function getIPs() {
-    var ips = await getLocalIPs();
-}
-
-function validURL(string) {
-    try {
-      new URL(string);
-    } catch (_) {
-      return false;  
-    }
-  
-    return true;
-  }
-
-setInterval(async function() {
+    
+    browser.browserAction.onClicked.addListener(function(tab) {
+        browser.windows.create({'url': 'index.html', 'type': 'popup', 'width' : 510, 'height' : 455});
+    });
+    
+    setInterval(function() {
         if(currentWallet != null) {
-            var timestamp = new Date().getTime() + ""
-            var browserIps = await getLocalIPs();
+            browser.browserAction.setIcon({
+                path : {
+                "16": "images/blackvisor_light_16.png",
+                "32": "images/blackvisor_light_32.png",
+                "64": "images/blackvisor_light_64.png",
+                "128": "images/blackvisor_light_128.png"
+            }});
+        } else {
+            browser.browserAction.setIcon({
+                path : {
+                "16": "images/blackvisor_16.png",
+                "32": "images/blackvisor_32.png",
+                "64": "images/blackvisor_64.png",
+                "128": "images/blackvisor_128.png"
+            }});
             
-            var generatorsList = GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_GENERATOR)
-            
-            var found = false;
-
-            var identityProviderToToken = {};
-
-            for (var generatorID in generatorsList) {
-                if (!generatorsList.hasOwnProperty(generatorID)) continue;
-                var generatorIpsJson = GetSessionKey(LOCALIPS, generatorID)
-                var generatorIps = JSON.parse(generatorIpsJson);
+        }
+    }, 200);
+    
+    async function getIPs() {
+        var ips = await getLocalIPs();
+    }
+    
+    function validURL(string) {
+        try {
+          new URL(string);
+        } catch (_) {
+          return false;  
+        }
+      
+        return true;
+      }
+    
+    setInterval(async function() {
+            if(currentWallet != null) {
+                var timestamp = new Date().getTime() + ""
+                var browserIps = await getLocalIPs();
                 
-                if(generatorIps == null) {
-                    generatorIps = [];
-                }
-
-                for(var i = 0; i < generatorIps.length; i++) {
-                    var generatorIp = generatorIps[i];
-                    var generatorIpTokens = generatorIp.split(".");
-                    for(var j = 0; j < browserIps.length; j++) {
-                        var browserIp = browserIps[j];
-                        var browserIpTokens = browserIp.split(".");
-                        if(browserIpTokens[0] == generatorIpTokens[0] && 
-                            browserIpTokens[1] == generatorIpTokens[1] &&
-                            browserIpTokens[2] == generatorIpTokens[2]) {
-                                var url = "http://" + generatorIp
-
-                                if(validURL(url) == false) {
-                                    console.log("Wrong format url: " + url);
-                                    continue;
+                var generatorsList = await GetIdentificatorToIdentificatorMap(currentWallet, IDENTIFICATOR_TYPE_GENERATOR)
+                
+                var found = false;
+    
+                var identityProviderToToken = {};
+    
+                for (var generatorID in generatorsList) {
+                    if (!generatorsList.hasOwnProperty(generatorID)) continue;
+                    var generatorIpsJson = await GetSessionKey(LOCALIPS, generatorID)
+                    var generatorIps = JSON.parse(generatorIpsJson);
+                    
+                    if(generatorIps == null) {
+                        generatorIps = [];
+                    }
+    
+                    for(var i = 0; i < generatorIps.length; i++) {
+                        var generatorIp = generatorIps[i];
+                        var generatorIpTokens = generatorIp.split(".");
+                        for(var j = 0; j < browserIps.length; j++) {
+                            var browserIp = browserIps[j];
+                            var browserIpTokens = browserIp.split(".");
+                            if(browserIpTokens[0] == generatorIpTokens[0] && 
+                                browserIpTokens[1] == generatorIpTokens[1] &&
+                                browserIpTokens[2] == generatorIpTokens[2]) {
+                                    var url = "http://" + generatorIp
+    
+                                    if(validURL(url) == false) {
+                                        console.log("Wrong format url: " + url);
+                                        continue;
+                                    }
+    
+                                    var tokens = await listTokensForGenerator(url, generatorID)
+                                    
+                                    if(tokens == null) {
+                                        continue;
+                                    }
+                                    var timeStamp = Math.floor(Date.now());
+                                    await SetSessionKey("browseripstime", browserIp, timeStamp)
+    
+                                    var tokensMap = tokens.response;
+    
+                                    for (var identityProviderID in tokensMap) {
+                                        if (!tokensMap.hasOwnProperty(identityProviderID)) continue;
+    
+                                        identityProviderToToken[identityProviderID] = tokensMap[identityProviderID];
+                                    }                                
+    
+                                    found = true;
+                                    break;
                                 }
-
-                                var tokens = await listTokensForGenerator(url, generatorID)
-                                
-                                if(tokens == null) {
-                                    continue;
-                                }
-                                var timeStamp = Math.floor(Date.now());
-                                SetSessionKey("browseripstime", browserIp, timeStamp)
-
-                                var tokensMap = tokens.response;
-
-                                for (var identityProviderID in tokensMap) {
-                                    if (!tokensMap.hasOwnProperty(identityProviderID)) continue;
-
-                                    identityProviderToToken[identityProviderID] = tokensMap[identityProviderID];
-                                }                                
-
-                                found = true;
-                                break;
+                        }
+    
+                        if(found == true) {
+                            break;
+                        }
+    
+                        var url = "http://" + generatorIp
+    
+                        if(validURL(url) == true) {
+    
+                            var tokens = await listTokensForGenerator(url, generatorID)
+                            
+                            if(tokens == null) {
+                                continue;
                             }
+                            var timeStamp = Math.floor(Date.now());
+                            await SetSessionKey("browseripstime", browserIp, timeStamp)
+    
+                            var tokensMap = tokens.response;
+    
+                            for (var identityProviderID in tokensMap) {
+                                if (!tokensMap.hasOwnProperty(identityProviderID)) continue;
+    
+                                identityProviderToToken[identityProviderID] = tokensMap[identityProviderID];
+                            }                                
+    
+                            break;
+                        }
                     }
-
-                    if(found == true) {
-                        break;
-                    }
-
-                    var url = "http://" + generatorIp
-
-                    if(validURL(url) == true) {
-
-                        var tokens = await listTokensForGenerator(url, generatorID)
-                        
-                        if(tokens == null) {
+                }
+    
+                var identityProviders = await listIdentityProvidersForCurrentWallet();
+                for (var identityProviderID in identityProviders) {
+                    // skip loop if the property is from prototype
+                    if (!identityProviders.hasOwnProperty(identityProviderID)) continue;
+        
+                    if (!identityProviderToToken.hasOwnProperty(identityProviderID)) {
+                        var identityProvider = identityProviders[identityProviderID];
+                        var url = identityProvider["url"];
+                    
+                        var capabilitiesResponse = await listCapabilitiesForIdentityProvider(url, identityProviderID);
+    
+                        if(capabilitiesResponse == null) {
                             continue;
                         }
+    
+                        var capabilities = capabilitiesResponse.response;
+    
+                        if (capabilities["generatorspolicy"] == "2fa") {
+                            continue
+                        }
+    
+                        var lastTime = lastTimeLocalTokenForIdentityWasGenerated[identityProviderID];
+    
+                        if(lastTime == null || lastTime == "") {
+                            lastTime = 0;
+                        }
+    
                         var timeStamp = Math.floor(Date.now());
-                        SetSessionKey("browseripstime", browserIp, timeStamp)
-
-                        var tokensMap = tokens.response;
-
-                        for (var identityProviderID in tokensMap) {
-                            if (!tokensMap.hasOwnProperty(identityProviderID)) continue;
-
-                            identityProviderToToken[identityProviderID] = tokensMap[identityProviderID];
-                        }                                
-
-                        break;
+                        
+                        if ((timeStamp - lastTime) > 60000) {
+                            var randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
+                            var token = btoa(String.fromCharCode.apply(null, randomBytes));
+                            //console.log(token);
+                        
+                            var saveTokensResponse = await saveTokens(url, identityProviderID, token);
+    
+                            //console.log("Save tokens");
+                            //console.log(saveTokensResponse);
+    
+                            if (saveTokensResponse === null) {
+                                continue;
+                            }
+    
+                            //console.log(saveTokensResponse);
+    
+                            identityProviderToToken[identityProviderID] = token;
+    
+                            lastTimeLocalTokenForIdentityWasGenerated[identityProviderID] = timestamp;
+    
+                            await SetSessionKey("internalgenerator", identityProviderID, timeStamp)
+                        }
                     }
                 }
-            }
-
-            for (var identityProviderID in identityProviderToToken) {
-                var servicesJson = GetSessionKey(SERVICES, identityProviderID)
-
-                var services = JSON.parse(servicesJson);
-
-                if (!identityProviderToToken.hasOwnProperty(identityProviderID)) continue;
+    
+                for (var identityProviderID in identityProviderToToken) {
+                    var servicesJson = await GetSessionKey(SERVICES, identityProviderID)
+    
+                    var services = JSON.parse(servicesJson);
+    
+                    if (!identityProviderToToken.hasOwnProperty(identityProviderID)) continue;
+                    
+                    var token = identityProviderToToken[identityProviderID];
                 
-                var token = identityProviderToToken[identityProviderID];
-            
-                var signedData = await signMessage(token, currentPrivateKey)
-
-                for(var i = 0; i < services.length; i++) {
-                    chrome.cookies.set({
-                        url: "https://" + services[i],
-                        name: "netclave-token-"+identityProviderID,
-                        value: currentWallet.IdentificatorID + "," + token + "," + signedData,
-                        domain: services[i]
-                    });
-
-                    chrome.cookies.set({
-                        url: "http://" + services[i],
-                        name: "netclave-token-"+identityProviderID,
-                        value:  currentWallet.IdentificatorID + "," + token + "," + signedData,
-                        domain: services[i]
-                    });
+                    var signedData = await signMessage(token, currentPrivateKey)
+    
+                    for(var i = 0; i < services.length; i++) {
+                        browser.cookies.set({
+                            url: "https://" + services[i],
+                            name: "netclave-token-"+identityProviderID,
+                            value: currentWallet.IdentificatorID + "," + token + "," + signedData,
+                            domain: services[i]
+                        });
+    
+                        browser.cookies.set({
+                            url: "http://" + services[i],
+                            name: "netclave-token-"+identityProviderID,
+                            value:  currentWallet.IdentificatorID + "," + token + "," + signedData,
+                            domain: services[i]
+                        });
+                    }
+    
+                    var timeStamp = Math.floor(Date.now());
+    
+                    await SetSessionKey("cookiesettime", identityProviderID, timeStamp)
                 }
-
-                var timeStamp = Math.floor(Date.now());
-
-                SetSessionKey("cookiesettime", identityProviderID, timeStamp)
+    
+            }
+        }, 
+    1000);
+    
+    setInterval(async function() {
+        if(currentWallet != null) {
+            var identityProviders = await listIdentityProvidersForCurrentWallet();
+            //console.log(identityProviders);
+    
+            for (var identityProviderID in identityProviders) {
+                // skip loop if the property is from prototype
+                if (!identityProviders.hasOwnProperty(identityProviderID)) continue;
+    
+                var identityProvider = identityProviders[identityProviderID];
+                var url = identityProvider["url"];
+    
+                var sharedIdentificators = await listPublicKeysForIdentificator(url, identityProviderID)
+    
+                if(sharedIdentificators == null) {
+                    continue;
+                }
+    
+                //console.log(sharedIdentificators);
+    
+                var responseMap = sharedIdentificators.response;
+    
+                for (var identificatorID in responseMap) {
+                    if (!responseMap.hasOwnProperty(identificatorID)) continue;
+                    var value = responseMap[identificatorID];
+    
+                    var tokens = value.split(",");
+    
+                    var identificatorType = tokens[1];
+                    var publicKey = tokens[2];
+    
+                    await StorePublicKey(identificatorID, publicKey)
+                    var identificator = CreateIdentificator(identificatorID, identificatorType)
+                    
+                    await AddIdentificator(identificator)
+                    await AddIdentificatorToIdentificator(currentWallet, identificator)
+                    await AddIdentificatorToIdentificator(identificator, currentWallet)
+                    await AddIdentificatorToIdentificator(identityProvider, identificator)
+                    await AddIdentificatorToIdentificator(identificator, identityProvider)
+                }
+    
+                var generatorIps = await listGeneratorIPs(url, identityProviderID);
+                var generatorIpsMap = generatorIps.response;
+    
+                for (var identificatorID in generatorIpsMap) {
+                    if (!generatorIpsMap.hasOwnProperty(identificatorID)) continue;
+                    var value = generatorIpsMap[identificatorID];
+                    var jsonValue = JSON.stringify(value);
+                    await SetSessionKey(LOCALIPS, identificatorID, jsonValue)
+                }
+            
+                var services = await listServices(url, identityProviderID);
+    
+                var jsonServices = JSON.stringify(services.response);
+                await SetSessionKey(SERVICES, identityProviderID, jsonServices)
             }
         }
     }, 
-1000);
+    1000);  
+}
 
-setInterval(async function() {
-    if(currentWallet != null) {
-        var identityProviders = await listIdentityProvidersForCurrentWallet();
-        //console.log(identityProviders);
-
-        for (var identityProviderID in identityProviders) {
-            // skip loop if the property is from prototype
-            if (!identityProviders.hasOwnProperty(identityProviderID)) continue;
-
-            var identityProvider = identityProviders[identityProviderID];
-            var url = identityProvider["url"];
-
-            var sharedIdentificators = await listPublicKeysForIdentificator(url, identityProviderID)
-
-            if(sharedIdentificators == null) {
-                continue;
-            }
-
-            //console.log(sharedIdentificators);
-
-            var responseMap = sharedIdentificators.response;
-
-            for (var identificatorID in responseMap) {
-                if (!responseMap.hasOwnProperty(identificatorID)) continue;
-                var value = responseMap[identificatorID];
-
-                var tokens = value.split(",");
-
-                var identificatorType = tokens[1];
-                var publicKey = tokens[2];
-
-                StorePublicKey(identificatorID, publicKey)
-                var identificator = CreateIdentificator(identificatorID, identificatorType)
-                
-                AddIdentificator(identificator)
-                AddIdentificatorToIdentificator(currentWallet, identificator)
-                AddIdentificatorToIdentificator(identificator, currentWallet)
-                AddIdentificatorToIdentificator(identityProvider, identificator)
-                AddIdentificatorToIdentificator(identificator, identityProvider)
-            }
-
-            var generatorIps = await listGeneratorIPs(url, identityProviderID);
-            var generatorIpsMap = generatorIps.response;
-
-            for (var identificatorID in generatorIpsMap) {
-                if (!generatorIpsMap.hasOwnProperty(identificatorID)) continue;
-                var value = generatorIpsMap[identificatorID];
-                var jsonValue = JSON.stringify(value);
-                SetSessionKey(LOCALIPS, identificatorID, jsonValue)
-            }
-        
-            var services = await listServices(url, identityProviderID);
-
-            var jsonServices = JSON.stringify(services.response);
-            SetSessionKey(SERVICES, identityProviderID, jsonServices)
-        }
-    }
-}, 
-1000);
-
+init();

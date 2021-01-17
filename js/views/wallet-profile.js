@@ -29,6 +29,11 @@ async function getIdentityProviderCookieTimeStamp(...args) {
     return sendMessageToBackground(requestObj)
 }
 
+async function getTimeStampForInternalGenerator(...args) {
+    var requestObj = createRequestObject("getTimeStampForInternalGenerator", args)
+    return sendMessageToBackground(requestObj)
+}
+
 var timestampListeners = [];
 
 async function cancelTimestampListeners() {
@@ -36,6 +41,30 @@ async function cancelTimestampListeners() {
         clearInterval(timestampListeners[i]);
     }
     timestampListeners = [];
+}
+
+async function getCapabilityDescription(capabilityName, capabilityValue) {
+    if (capabilityName == "generatorspolicy") {
+        if (capabilityValue == "2fa") {
+            return "Two factor authentication\n is enforced.\nOnly external generators to\n this wallet can be used.";
+        }
+
+        if (capabilityValue == "mixed") {
+            return "Wallet decides dynamically\n which generator to use.\nExternal or internal";
+        }
+    }
+
+    return "";
+}
+
+async function renderCapabilityLabel(args) {
+    return new Promise(resolve => {
+        var context = createContext()
+        context = mergeContext(context, args)
+        renderTemplate("capability-label", context, function(html) {
+            resolve(html);
+        });
+    });
 }
 
 async function renderIdentityProviderRow(args) {
@@ -48,15 +77,22 @@ async function renderIdentityProviderRow(args) {
             timestamp = 0
         }
 
+        var internalGeneratorTimestamp = await getTimeStampForInternalGenerator(args["IdentificatorID"]);
+
+        if(internalGeneratorTimestamp == "") {
+            internalGeneratorTimestamp = 0
+        }
+
         var currentTimeStamp = Math.floor(Date.now());
 
         var delta = (currentTimeStamp - timestamp)
+        var deltaInternal = (currentTimeStamp - internalGeneratorTimestamp);
 
         var cssSelector = "#identity-provider-check-" + args["IdentificatorID"]
 
         console.log(cssSelector);
 
-        if(delta > 60000) {
+        if(delta > 60000 && deltaInternal > 60000) {
             console.log("Setting red")
             $(cssSelector).attr("style", "background-color: #A53127 !important;border: .05rem solid #A53127 !important;")
         } else {
@@ -67,8 +103,38 @@ async function renderIdentityProviderRow(args) {
 
     timestampListeners.push(listener)
 
+    var identityProviderId = args["IdentificatorID"];
+
+    var capabilities = await listCapabilitiesForIdentityProvider(identityProviderId)
+
+    var capabilitiesHTML = "";
+
+    for (var k in capabilities) {
+        if (capabilities.hasOwnProperty(k)) {
+            var key = k;
+            var value = capabilities[key];
+
+            var capabilityContext = {}
+
+            var description = await getCapabilityDescription(key, value)
+    
+            if (description != "") {
+                capabilityContext["capabilityDescription"] = description;
+                capabilityContext["capabilityValue"] = value;
+
+                var html = await renderCapabilityLabel(capabilityContext);
+                capabilitiesHTML += html;
+            }
+        }   
+    }
+
+    console.log("capabilitiesHTML");
+    console.log(capabilitiesHTML);
+
     return new Promise(resolve => {
         var context = createContext()
+        console.log(capabilitiesHTML);
+        context["capabilities"] = capabilitiesHTML;
         context = mergeContext(context, args)
         renderTemplate("identity-provider-row", context, function(html) {
             resolve(html);

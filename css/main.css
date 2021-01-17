@@ -36,6 +36,12 @@ body {
     height: 40px;
 }
 
+@-moz-document url-prefix() {
+    .external-panel-footer {
+        font-size: 10pt !important;
+    }
+}
+
 .internal-panel-footer {
     padding-top: 0.8em !important;
     padding-bottom: 0.8em !important;    
@@ -117,4 +123,13 @@ body {
 
 .panel-body-no-padding {
     padding: 0em !important;
+}
+
+.tile.tile-centered .tile-content {
+    overflow: inherit !important;    
+}
+
+.capability-label {
+    margin-top: 0.2rem !important;   
+    margin-left: 0.2rem !important;   
 }

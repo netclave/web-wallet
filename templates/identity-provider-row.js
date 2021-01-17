@@ -18,6 +18,9 @@ window["templates"]["identity-provider-row"] = `
 <div class="tile tile-centered identity-provider-row">
     <div class="tile-content">
     <div class="tile-title text-bold">{{url}}</div>
+    <div class="tile-content text-center">
+    {{capabilities}}
+    </div>
     </div>
     <div class="tile-action">
     <button class="btn btn-link btn-action btn-lg tooltip tooltip-left identity-provider-profile" data-identificatorid = "{{IdentificatorID}}" data-url = "{{url}}" data-walletid = "{{walletID}}" data-tooltip="Identity Provider profile"><i class="icon icon-apps"></i></button>

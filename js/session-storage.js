@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-function SetSessionKey(table, key, value) {
+async function SetSessionKey(table, key, value) {
     sessionStorage.setItem(table + "/" + key, value);
 }
 
-function GetSessionKey(table, key) {
+async function GetSessionKey(table, key) {
     return sessionStorage.getItem(table + "/" + key)
 }
 
-function DelSessionKey(table, key) {
+async function DelSessionKey(table, key) {
     return sessionStorage.removeItem(table + "/" + key)
 }

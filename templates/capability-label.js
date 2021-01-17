@@ -14,13 +14,6 @@
  * limitations under the License.
  */
 
-function sendMessageToBackground(request) {
-    return browser.runtime.sendMessage(request);
-}
-
-function createRequestObject(methodName, args) {
-    var result = {};
-    result["function"] = methodName
-    result["args"] = args
-    return result;
-}
+window["templates"]["capability-label"] = `
+<span class="label capability-label label-rounded label-primary tooltip tooltip-bottom" data-tooltip="{{capabilityDescription}}">{{capabilityValue}}</span>
+`;

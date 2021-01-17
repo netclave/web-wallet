@@ -25,68 +25,68 @@ var LOCALIPS = "localips"
 var SERVICES = "services"
 
 
-function StorePublicKey(label, pubKey) {
-	SetKey(PUBLIC_KEYS, label, pubKey)
+async function StorePublicKey(label, pubKey) {
+	await SetKey(PUBLIC_KEYS, label, pubKey)
 }
 
-function RetrievePublicKey(label) {
-	return GetKey(PUBLIC_KEYS, label)
+async function RetrievePublicKey(label) {
+	return await GetKey(PUBLIC_KEYS, label)
 }
 
-function DeletePublicKey(label) {
-	DelKey(PUBLIC_KEYS, label)
+async function DeletePublicKey(label) {
+	await DelKey(PUBLIC_KEYS, label)
 }
 
-function StoreTempPublicKey(label, pubKey) {
-	SetKey(PUBLIC_KEYS_TEMP, label, pubKey)
+async function StoreTempPublicKey(label, pubKey) {
+	await SetKey(PUBLIC_KEYS_TEMP, label, pubKey)
 }
 
-function RetrieveTempPublicKey(label) {
-	return GetKey(PUBLIC_KEYS_TEMP, label)
+async function RetrieveTempPublicKey(label) {
+	return await GetKey(PUBLIC_KEYS_TEMP, label)
 }
 
-function DeleteTempPublicKey(label) {
-	DelKey(PUBLIC_KEYS_TEMP, label)
+async function DeleteTempPublicKey(label) {
+	await DelKey(PUBLIC_KEYS_TEMP, label)
 }
 
-function StorePrivateKey(label, priKey) {
-	SetKey(PRIVATE_KEYS, label, priKey)
+async function StorePrivateKey(label, priKey) {
+	await SetKey(PRIVATE_KEYS, label, priKey)
 }
 
-function RetrievePrivateKey(label) {
-	return GetKey(PRIVATE_KEYS, label)
+async function RetrievePrivateKey(label) {
+	return await GetKey(PRIVATE_KEYS, label)
 }
 
-function DeletePrivateKey(label) {
-	DelKey(PRIVATE_KEYS, label)
+async function DeletePrivateKey(label) {
+	await DelKey(PRIVATE_KEYS, label)
 }
 
-function SetIdentificatorByLabel(label, identificatorID) {
-	SetKey(LABEL_TO_IDENTIFICATOR_ID, label, identificatorID)
+async function SetIdentificatorByLabel(label, identificatorID) {
+	await SetKey(LABEL_TO_IDENTIFICATOR_ID, label, identificatorID)
 }
 
-function GetIdentificatorByLabel(label) {
-	return GetKey(LABEL_TO_IDENTIFICATOR_ID, label)
+async function GetIdentificatorByLabel(label) {
+	return await GetKey(LABEL_TO_IDENTIFICATOR_ID, label)
 }
 
-function DeleteIdentificatorByLabel(label) {
-	DelKey(LABEL_TO_IDENTIFICATOR_ID, label)
+async function DeleteIdentificatorByLabel(label) {
+	await DelKey(LABEL_TO_IDENTIFICATOR_ID, label)
 }
 
-function CreateIdentificator(IdentificatorID, IdentificatorType) {
+async function CreateIdentificator(IdentificatorID, IdentificatorType) {
     return {"IdentificatorID": IdentificatorID, "IdentificatorType": IdentificatorType}
 }
 
-function AddIdentificator(identificator) {
-	AddToMap(IDENTIFICATORS, "", identificator.IdentificatorID, identificator)
+async function AddIdentificator(identificator) {
+	await AddToMap(IDENTIFICATORS, "", identificator.IdentificatorID, identificator)
 }
 
-function DeleteIdentificator(identificatorID) {
-	DelFromMap(IDENTIFICATORS, "", identificatorID)
+async function DeleteIdentificator(identificatorID) {
+	await DelFromMap(IDENTIFICATORS, "", identificatorID)
 }
 
-function GetIdentificators(identificatorType) {
-    var identificatorMap = GetMap(IDENTIFICATORS, "")
+async function GetIdentificators(identificatorType) {
+    var identificatorMap = await GetMap(IDENTIFICATORS, "")
     var result = {}
     for(key in identificatorMap){
 		var type = identificatorMap[key].IdentificatorType;
@@ -97,28 +97,28 @@ function GetIdentificators(identificatorType) {
 	return result
 }
 
-function AddPublicKeyLabelToIdentificator(identificatorID, label) {
-	AddToMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID, label, label)
+async function AddPublicKeyLabelToIdentificator(identificatorID, label) {
+	await AddToMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID, label, label)
 }
 
-function DelPublicKeyLabelToIdentificator(identificatorID, label) {
-	DelFromMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID, label)
+async function DelPublicKeyLabelToIdentificator(identificatorID, label) {
+	await DelFromMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID, label)
 }
 
-function GetPublicKeyLabelsForIdentificator(identificatorID) {
-	return GetMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID)
+async function GetPublicKeyLabelsForIdentificator(identificatorID) {
+	return await GetMap(IDENTIFICATOR_TO_PUBLIC_KEY_LABELS, identificatorID)
 }
 
-function AddIdentificatorToIdentificator(identificator1, identificator2) {
-	AddToMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID, identificator2.IdentificatorID, identificator2.IdentificatorType)
+async function AddIdentificatorToIdentificator(identificator1, identificator2) {
+	await AddToMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID, identificator2.IdentificatorID, identificator2.IdentificatorType)
 }
 
-function DelIdentificatorToIdentificator(identificator1, identificator2) {
-	DelFromMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID, identificator2.IdentificatorID)
+async function DelIdentificatorToIdentificator(identificator1, identificator2) {
+	await DelFromMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID, identificator2.IdentificatorID)
 }
 
-function GetIdentificatorToIdentificatorMap(identificator1, identificatorType) {
-	var identificatorMap = GetMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID)
+async function GetIdentificatorToIdentificatorMap(identificator1, identificatorType) {
+	var identificatorMap = await GetMap(IDENTIFICATOR_TO_IDENTIFICATOR, identificator1.IdentificatorID)
 	var result = {}
     for(key in identificatorMap){
         var type = identificatorMap[key]
@@ -129,8 +129,8 @@ function GetIdentificatorToIdentificatorMap(identificator1, identificatorType) {
 	return result
 }
 
-function LoadIdentificatorsByList(identificators, type) {
-	var allIdentificators = GetIdentificators(type)
+async function LoadIdentificatorsByList(identificators, type) {
+	var allIdentificators = await GetIdentificators(type)
 	var result = {}
     for(key in identificators){
         result[key] = allIdentificators[key];
